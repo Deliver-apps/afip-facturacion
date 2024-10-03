@@ -46,6 +46,7 @@ export type Database = {
         Row: {
           category: string | null
           created_at: string
+          external_client: boolean | null
           id: number
           maximum: number | null
           minimum: number | null
@@ -57,6 +58,7 @@ export type Database = {
         Insert: {
           category?: string | null
           created_at?: string
+          external_client?: boolean | null
           id?: number
           maximum?: number | null
           minimum?: number | null
@@ -68,6 +70,7 @@ export type Database = {
         Update: {
           category?: string | null
           created_at?: string
+          external_client?: boolean | null
           id?: number
           maximum?: number | null
           minimum?: number | null
@@ -174,4 +177,19 @@ export type Enums<
   ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : PublicEnumNameOrOptions extends keyof PublicSchema["Enums"]
     ? PublicSchema["Enums"][PublicEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof PublicSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends { schema: keyof Database }
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof PublicSchema["CompositeTypes"]
+    ? PublicSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never

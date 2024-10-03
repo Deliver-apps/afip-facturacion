@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import Afip from '@afipsdk/afip.js';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
@@ -11,6 +12,7 @@ import {
 import { config } from './config/config';
 import { getVaultClient } from './external/vaultClient';
 import vaultRoutes from './routes/vault.router';
+import facturacionRouter from './routes/facturacion.router';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import userRouter from './routes/user.router';
@@ -19,6 +21,10 @@ import { getAllUsers } from './helpers/usersSupabase';
 import { router } from './routes/index';
 import { generateRandomCronTimes } from './helpers/cronRandomized';
 import { cronToTime } from './helpers/parsedCron';
+import { AppDataSource } from './data-source';
+import { Status } from './types/status.types';
+import { Jobs } from './entities/Jobs.entity';
+import { executePendingJobs } from './crons/handlerJobs';
 
 const app = express();
 const PORT = config.port ?? 3000;
@@ -27,7 +33,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined'));
-app.use('/api', router);
 
 // Place error-handling middleware at the end
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
@@ -56,7 +61,8 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 app.post('/billC', async (req: Request, res: Response) => {
   logger.info('billed');
-  const { min, max, totalParts, initDate, endDate, cuit, userId } = req.body;
+  const { min, max, totalParts, initDate, endDate, cuit, userId, salePoint } =
+    req.body;
 
   const randomNumber = getRandomNumberBetween(min, max);
 
@@ -72,6 +78,8 @@ app.post('/billC', async (req: Request, res: Response) => {
     initDate,
     endDate
   );
+
+  const cuitToOnlyNumbers = cuit.replace(/-/g, '');
   const datesFromCron = randomCrons
     .map((time) => {
       const stringTime = cronToTime(time);
@@ -81,14 +89,19 @@ app.post('/billC', async (req: Request, res: Response) => {
 
   const { cert, key } = await getUserCertificateAndKey(userId);
   const afip = new Afip({
-    CUIT: cuit,
+    CUIT: cuitToOnlyNumbers,
     cert,
     key,
     production: true,
     access_token: config.afipSdkToken,
   });
 
-  const test = await afip.ElectronicBilling.getSalesPoints();
+  let salesPoints;
+  try {
+    salesPoints = await afip.ElectronicBilling.getSalesPoints();
+  } catch (error) {
+    console.error(JSON.stringify(error));
+  }
 
   res.send({
     randomNumber,
@@ -97,10 +110,23 @@ app.post('/billC', async (req: Request, res: Response) => {
     total,
     datesFromCron,
     afip: afip.CUIT,
-    sale: test,
+    salesPoints,
   });
 });
+AppDataSource.initialize()
+  .then(async () => {
+    console.log('DataSource is connected');
+    await AppDataSource.query("SET TIME ZONE 'America/Argentina/Buenos_Aires'");
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+    app.use('/api', router);
+    app.use('/api', userRouter);
+    app.use('/api', vaultRoutes);
+    app.use('/api', facturacionRouter);
+
+    // executePendingJobs();
+
+    app.listen(PORT, () => {
+      console.log(`Server is running on http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => console.log(error));

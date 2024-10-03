@@ -15,4 +15,10 @@ export const config = {
   smtpPass: process.env.SMTP_PASS,
   emailFrom: process.env.SMTP_FROM,
   smtpBrevo: process.env.SMTP_BREVO,
+  postgresHost: process.env.DB_HOST,
+  postgresUser: process.env.DB_USERNAME,
+  postgresPassword: process.env.DB_PASSWORD,
+  postgresDatabase: process.env.DB_DATABASE,
+  postgresPort: process.env.DB_PORT,
+  postgresURL: process.env.DATABASE_URL,
 };

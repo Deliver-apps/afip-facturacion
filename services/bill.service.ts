@@ -13,6 +13,7 @@ export const BillService = {
     maxBill: number
   ) {
     try {
+      logger.info('Creando facturas ' + billNumber + parseInt(billNumber));
       const timesDivided =
         parseInt(billNumber) ?? Math.floor(Math.random() * (110 - 60 + 1)) + 60;
       const today = new Date();
@@ -20,12 +21,13 @@ export const BillService = {
       const startDay = startDate
         ? new Date(startDate).getDate()
         : today.getDate() + 1;
-      const lastDayThisMonth =
-        new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - 3;
+      const lastDayThisMonth = endDate
+        ? new Date(endDate).getDate()
+        : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - 3;
 
       scheduleRandomCronJobsForToday(
         7,
-        0,
+        23,
         minBill,
         maxBill,
         timesDivided,
@@ -34,7 +36,8 @@ export const BillService = {
         user?.username!,
         user?.category!,
         user?.salePoint!,
-        user?.id!
+        user?.id!,
+        user?.external_client!
       );
 
       // return crons;

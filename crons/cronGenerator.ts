@@ -5,6 +5,9 @@ import { getUserCertificateAndKey } from '../services/vault.service';
 import Afip from '@afipsdk/afip.js';
 import { config } from '../config/config';
 import { getUserById } from '../services/user.service';
+import { AppDataSource } from '../data-source';
+import { Status } from '../types/status.types';
+import { Jobs } from '../entities/Jobs.entity';
 
 export function scheduleCronJobBill(
   cronExpression: string,
@@ -12,70 +15,81 @@ export function scheduleCronJobBill(
   valueToBill: number,
   salePoint: number,
   category: string,
-  userId: number
+  userId: number,
+  jobId: number // Pass the `jobId` directly when scheduling the job
 ) {
   const task = cron.schedule(
     cronExpression,
     async () => {
       logger.info(
-        `Executing cron job: ${taskName} at ${new Date().toLocaleString()}`
+        `Executing cron job: ${taskName} at ${new Date()}, to userId: ${userId}`
       );
-      const user = await getUserById(userId);
-      const { cert, key } = await getUserCertificateAndKey(userId);
-      logger.info(`Certificate: ${cert}; Key: ${key}`);
-      const afip = new Afip({
-        CUIT: user?.username,
-        cert,
-        key,
-        production: true,
-        access_token: config.afipSdkToken,
-      });
 
-      const comprobantesType = {
-        A: 1,
-        B: 6,
-        C: 11,
-      };
+      try {
+        const user = await getUserById(userId);
+        const { cert, key } = await getUserCertificateAndKey(userId);
 
-      type ComprobanteKey = keyof typeof comprobantesType;
+        if (!cert || !key) {
+          logger.error('No se pudo obtener el certificado y clave');
+          throw new Error('No se pudo obtener el certificado y clave');
+        }
 
-      // Ensure 'category' is a valid key
-      const comprobanteType = comprobantesType[category as ComprobanteKey];
+        const afip = new Afip({
+          CUIT: user?.username,
+          cert,
+          key,
+          production: true,
+          access_token: config.afipSdkToken,
+        });
 
-      if (!comprobanteType) {
-        throw new Error(`Invalid category: ${category}`);
+        const data = {
+          CantReg: 1,
+          PtoVta: salePoint,
+          CbteTipo: 11,
+          Concepto: 1,
+          DocTipo: 99,
+          DocNro: 0,
+          CbteFch: parseInt(
+            new Date().toISOString().slice(0, 10).replace(/-/g, '')
+          ),
+          ImpTotal: valueToBill,
+          ImpNeto: valueToBill,
+          ImpIVA: 0,
+          MonId: 'PES',
+          MonCotiz: 1,
+        };
+
+        let response = await afip.ElectronicBilling.createNextVoucher(data);
+
+        if (!response) {
+          logger.error('Error al generar factura');
+          console.error(response);
+        }
+
+        await AppDataSource.transaction(async (manager) => {
+          const getJob = await manager
+            .getRepository(Jobs)
+            .findOne({ where: { id: jobId } });
+          if (!getJob) {
+            throw new Error('No se pudo obtener el job');
+          }
+          getJob.status = Status.Completed;
+          await manager.save(getJob);
+        });
+      } catch (error) {
+        await AppDataSource.transaction(async (manager) => {
+          const getJob = await manager
+            .getRepository(Jobs)
+            .findOne({ where: { id: jobId } });
+          if (!getJob) {
+            throw new Error('No se pudo obtener el job');
+          }
+          getJob.status = Status.Failed;
+          await manager.save(getJob);
+        });
+        console.error(error);
       }
 
-      const test = await afip.ElectronicBilling.getSalesPoints();
-      const lastVoucher = await afip.ElectronicBilling.getLastVoucher(
-        salePoint,
-        comprobanteType
-      );
-      const data = {
-        CantReg: 1, // The number of invoices to issue
-        PtoVta: salePoint, // Point of sale number (the one you just created)
-        CbteTipo: comprobanteType, // Type of document (11 for Electronic Billing)
-        Concepto: 1, // Products
-        DocTipo: 99, // Document type (99 for Consumidor Final)
-        DocNro: 0, // Document number (0 for Consumidor Final)
-        CbteFch: parseInt(
-          new Date().toISOString().slice(0, 10).replace(/-/g, '')
-        ), // Date in format YYYYMMDD
-        ImpTotal: valueToBill, // Total amount
-        ImpNeto: valueToBill, // Net amount
-        ImpIVA: 0, // VAT amount
-        MonId: 'PES', // Currency
-        MonCotiz: 1, // Currency rate
-      };
-
-      const response = await afip.ElectronicBilling.createNextVoucher(data);
-      logger.info(response);
-
-      if (response) {
-        logger.info('Factura generada' + response.CAE);
-      } else {
-        logger.error('Error al generar factura');
-      }
       task.stop();
       logger.warn(
         `Execution of cron job: ${taskName} completed at ${new Date().toLocaleString()}`
@@ -83,7 +97,7 @@ export function scheduleCronJobBill(
     },
     {
       scheduled: true,
-      timezone: 'America/Argentina/Buenos_Aires', // Set your timezone here
+      timezone: 'America/Argentina/Buenos_Aires',
     }
   );
   logger.info(

@@ -4,6 +4,7 @@ import {
   getUserById,
   updateUser,
   deleteUser,
+  getAllUsers,
 } from '../services/user.service';
 import { logger } from '../logger';
 
@@ -21,6 +22,21 @@ export const createUserController = async (
     return res.status(201).json(data);
   } catch (error: any) {
     logger.error(`Error creating user: ${error.message}`);
+    return res.status(500).send(error.message);
+  }
+};
+
+export const getAllUsersController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const { external } = req.query;
+    const externalBool = external === 'true';
+    const data = await getAllUsers(externalBool);
+    return res.status(200).json(data);
+  } catch (error: any) {
+    logger.error(`Error fetching users: ${error.message}`);
     return res.status(500).send(error.message);
   }
 };

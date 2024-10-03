@@ -15,6 +15,28 @@ export const createUser = async (user: UserInsert): Promise<UserRow | null> => {
   return data;
 };
 
+export const getAllUsers = async (
+  external: boolean
+): Promise<Partial<UserRow>[]> => {
+  if (external) {
+    const { data, error } = await supabase
+      .from('facturacion_users')
+      .select('*')
+      .order('id', { ascending: true })
+      .select('id, real_name');
+    if (error) throw new Error(error.message);
+    return data;
+  }
+  const { data, error } = await supabase
+    .from('facturacion_users')
+    .select('*')
+    .eq('external_client', false)
+    .order('id', { ascending: true })
+    .select('id, real_name');
+  if (error) throw new Error(error.message);
+  return data;
+};
+
 export const getUserById = async (id: number): Promise<UserRow | null> => {
   const { data, error } = await supabase
     .from('facturacion_users')

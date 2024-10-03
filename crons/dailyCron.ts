@@ -9,6 +9,9 @@ import {
 import { cronToTime } from '../helpers/parsedCron';
 import { logger } from '../logger';
 import { apiInstanceEmail, sendSmtpEmail } from '../config/mailer';
+import { AppDataSource } from '../data-source';
+import { Jobs } from '../entities/Jobs.entity';
+import { Status } from '../types/status.types';
 
 export async function scheduleRandomCronJobsForToday(
   startHour: number,
@@ -21,8 +24,12 @@ export async function scheduleRandomCronJobsForToday(
   cuit: string,
   category: string,
   salePoint: number,
-  userId: number
+  userId: number,
+  external: boolean
 ) {
+  console.error(
+    `Start hour: ${startHour} End hour: ${endHour} Start day: ${startDay} End day: ${endDay} minValue: ${minValue} maxValue: ${maxValue} times: ${times} cuit: ${cuit} category: ${category} salePoint: ${salePoint} userId: ${userId}`
+  );
   const cronTimes = generateRandomCronTimes(
     times,
     startHour,
@@ -84,18 +91,42 @@ export async function scheduleRandomCronJobsForToday(
     },
     (error) => {
       console.log(error);
+      throw new Error('Error al enviar correo electrónico');
     }
   );
 
-  cronTimes.forEach((cronTime, index) => {
-    const taskName = `RandomCronJob_${cronTime}`;
-    scheduleCronJobBill(
-      cronTime,
-      taskName,
-      parts[index],
-      salePoint,
-      category,
-      userId
-    );
-  });
+  for (const [index, cronTime] of cronTimes.entries()) {
+    try {
+      const taskName = `RandomCronJob_ ${cronTime}`;
+      await AppDataSource.transaction(async (manager) => {
+        const newJob = AppDataSource.getRepository(Jobs).create({
+          cronExpression: cronTime,
+          userId: userId,
+          status: Status.Pending,
+          valueToBill: parts[index],
+          salePoint,
+          external,
+        });
+
+        scheduleCronJobBill(
+          cronTime,
+          taskName,
+          parts[index],
+          salePoint,
+          category,
+          userId,
+          newJob.id
+        );
+
+        console.log('Inserting Job:', newJob); // Log the job before saving it
+        await manager.save(newJob);
+        console.log('Job inserted successfully');
+      });
+    } catch (error) {
+      console.log(error);
+      throw new Error('Error al crear tarea');
+    } finally {
+      console.log('Finalizado Update Tabla');
+    }
+  }
 }

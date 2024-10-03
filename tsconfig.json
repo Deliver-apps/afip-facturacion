@@ -5,6 +5,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
     "rootDir": "./"
