@@ -56,7 +56,8 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 app.post('/billC', async (req: Request, res: Response) => {
   logger.info('billed');
-  const { min, max, totalParts, initDate, endDate, cuit, userId } = req.body;
+  const { min, max, totalParts, initDate, endDate, cuit, userId, salePoint } =
+    req.body;
 
   const randomNumber = getRandomNumberBetween(min, max);
 
@@ -88,7 +89,13 @@ app.post('/billC', async (req: Request, res: Response) => {
     access_token: config.afipSdkToken,
   });
 
-  const test = await afip.ElectronicBilling.getSalesPoints();
+  const numberV = await afip.ElectronicBilling.getLastVoucher(salePoint, 11);
+  console.log(numberV);
+  const info = await afip.ElectronicBilling.getVoucherInfo(
+    numberV,
+    salePoint,
+    11
+  );
 
   res.send({
     randomNumber,
@@ -97,7 +104,7 @@ app.post('/billC', async (req: Request, res: Response) => {
     total,
     datesFromCron,
     afip: afip.CUIT,
-    sale: test,
+    lastVoucher: info,
   });
 });
 

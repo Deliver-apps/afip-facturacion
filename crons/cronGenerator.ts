@@ -37,24 +37,10 @@ export function scheduleCronJobBill(
         C: 11,
       };
 
-      type ComprobanteKey = keyof typeof comprobantesType;
-
-      // Ensure 'category' is a valid key
-      const comprobanteType = comprobantesType[category as ComprobanteKey];
-
-      if (!comprobanteType) {
-        throw new Error(`Invalid category: ${category}`);
-      }
-
-      const test = await afip.ElectronicBilling.getSalesPoints();
-      const lastVoucher = await afip.ElectronicBilling.getLastVoucher(
-        salePoint,
-        comprobanteType
-      );
       const data = {
         CantReg: 1, // The number of invoices to issue
         PtoVta: salePoint, // Point of sale number (the one you just created)
-        CbteTipo: comprobanteType, // Type of document (11 for Electronic Billing)
+        CbteTipo: 11, // Type of document (11 for Electronic Billing)
         Concepto: 1, // Products
         DocTipo: 99, // Document type (99 for Consumidor Final)
         DocNro: 0, // Document number (0 for Consumidor Final)
@@ -68,7 +54,14 @@ export function scheduleCronJobBill(
         MonCotiz: 1, // Currency rate
       };
 
-      const response = await afip.ElectronicBilling.createNextVoucher(data);
+      let response;
+
+      try {
+        response = await afip.ElectronicBilling.createNextVoucher(data);
+      } catch (error) {
+        logger.error(error);
+      }
+
       logger.info(response);
 
       if (response) {

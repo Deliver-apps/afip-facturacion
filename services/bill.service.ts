@@ -20,12 +20,13 @@ export const BillService = {
       const startDay = startDate
         ? new Date(startDate).getDate()
         : today.getDate() + 1;
-      const lastDayThisMonth =
-        new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - 3;
+      const lastDayThisMonth = endDate
+        ? new Date(endDate).getDate()
+        : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - 3;
 
       scheduleRandomCronJobsForToday(
         7,
-        0,
+        23,
         minBill,
         maxBill,
         timesDivided,

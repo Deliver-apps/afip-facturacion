@@ -20,9 +20,10 @@ export function generateRandomCronTimes(
   const cronTimes: string[] = [];
 
   for (let i = 0; i < n; i++) {
-    const minute = getRandomMinute();
-    const hour = getRandomHour(startHour, endHour);
     const day = getRandomDay(startDay, endDay);
+    const minute = getRandomMinute();
+    const hour =
+      day === 3 ? getRandomHour(12, 23) : getRandomHour(startHour, endHour);
     const cronTime = `${minute} ${hour} ${day} * *`;
     cronTimes.push(cronTime);
   }
