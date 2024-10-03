@@ -1,0 +1,23 @@
+# Etapa única para desarrollo
+FROM node:20-alpine
+
+# Instala herramientas necesarias
+RUN apk add --no-cache bash
+
+# Establece el directorio de trabajo
+WORKDIR /app
+
+# Copia los archivos de dependencias
+COPY package.json package-lock.json* ./
+
+# Instala todas las dependencias (incluyendo devDependencies)
+RUN npm install
+
+# Copia el resto del código fuente
+COPY . .
+
+# Expone el puerto que utiliza la aplicación
+EXPOSE 3000
+
+# Comando para iniciar la aplicación en modo desarrollo
+CMD ["npm", "run", "dev"]
