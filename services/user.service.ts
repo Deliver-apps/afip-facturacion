@@ -18,12 +18,13 @@ export const createUser = async (user: UserInsert): Promise<UserRow | null> => {
 export const getAllUsers = async (
   external: boolean
 ): Promise<Partial<UserRow>[]> => {
+  console.error(external);
   if (external) {
     const { data, error } = await supabase
       .from('facturacion_users')
       .select('*')
       .order('id', { ascending: true })
-      .select('id, real_name');
+      .select('id, real_name, username');
     if (error) throw new Error(error.message);
     return data;
   }
@@ -32,7 +33,7 @@ export const getAllUsers = async (
     .select('*')
     .eq('external_client', false)
     .order('id', { ascending: true })
-    .select('id, real_name');
+    .select('id, real_name, username');
   if (error) throw new Error(error.message);
   return data;
 };
