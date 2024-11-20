@@ -12,6 +12,7 @@ const upload = multer({ storage });
 export const router = Router();
 
 router.post('/bill', BillController.createBillController);
+router.post('/bill/retry', BillController.retryBillController);
 router.post(
   '/vault/load-certificate',
   upload.fields([

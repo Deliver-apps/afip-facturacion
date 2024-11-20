@@ -66,7 +66,7 @@ export async function scheduleRandomCronJobsForToday(
   ];
 
   const htmlContent = `
-    <h1>Facturacion Py</h1>
+    <h1>Facturacion</h1>
     <p>Valores divididos a correr durante el Día:</p>
     <ul>
       ${formatPartsAsHtmlMoney(parts)}
@@ -98,7 +98,7 @@ export async function scheduleRandomCronJobsForToday(
   for (const [index, cronTime] of cronTimes.entries()) {
     try {
       await AppDataSource.transaction(async (manager) => {
-        const newJob = AppDataSource.getRepository(Jobs).create({
+        const job = AppDataSource.getRepository(Jobs).create({
           cronExpression: cronTime,
           userId: userId,
           status: Status.Pending,
@@ -106,6 +106,7 @@ export async function scheduleRandomCronJobsForToday(
           salePoint,
           external,
         });
+        const newJob = await AppDataSource.getRepository(Jobs).save(job);
         const taskName = `Job:${newJob.id}`;
 
         scheduleCronJobBill(
@@ -119,7 +120,6 @@ export async function scheduleRandomCronJobsForToday(
         );
 
         console.log('Inserting Job:', newJob); // Log the job before saving it
-        await manager.save(newJob);
         console.log('Job inserted successfully');
       });
     } catch (error) {

@@ -8,15 +8,23 @@ export function getRandomNumberBetween(min: number, max: number): number {
 export function divideNumberRandomly(
   numberRandom: number,
   N: number,
-  maxPart: number = 110000
+  minPart: number = 35000,
+  maxPart: number = 135000
 ): number[] {
-  // Calculate the minimum possible part (so all parts sum up to the numberRandom)
-  const minPart = parseFloat((numberRandom / N).toFixed(2));
+  // Calculate the average part to check feasibility
+  const averagePart = parseFloat((numberRandom / N).toFixed(2));
 
-  // If minPart is greater than maxPart, it's not possible to divide
-  if (minPart > maxPart) {
+  // Check if it's possible to divide the number with given minPart and maxPart
+  if (averagePart > maxPart) {
     throw new Error(
-      "It's not possible to divide ${numberRandom} into ${N} parts with each part <= ${maxPart}"
+      `It's not possible to divide ${numberRandom} into ${N} parts with each part <= ${maxPart}`
+    );
+  }
+
+  if (averagePart < minPart) {
+    console.table(averagePart);
+    throw new Error(
+      `It's not possible to divide ${numberRandom} into ${N} parts with each part >= ${minPart}`
     );
   }
 
@@ -25,41 +33,56 @@ export function divideNumberRandomly(
 
   for (let i = 0; i < N; i++) {
     const remaining = numberRandom - sum;
-    // Limit the max possible part to not exceed maxPart or the remaining amount divided evenly
+
+    // Calculate the min and max possible part for this iteration
+    const minPossiblePart = Math.max(
+      minPart,
+      parseFloat(
+        (remaining - maxPart * (N - i - 1) > minPart
+          ? remaining - maxPart * (N - i - 1)
+          : minPart
+        ).toFixed(2)
+      )
+    );
+
     const maxPossiblePart = Math.min(
       maxPart,
-      parseFloat((remaining / (N - i)).toFixed(2))
+      parseFloat(
+        (remaining - minPart * (N - i - 1) < maxPart
+          ? remaining - minPart * (N - i - 1)
+          : maxPart
+        ).toFixed(2)
+      )
     );
-    // Generate a random part between 0 and maxPossiblePart
-    const part = parseFloat((Math.random() * maxPossiblePart).toFixed(2));
+
+    if (minPossiblePart > maxPossiblePart) {
+      throw new Error(
+        `Cannot allocate parts with minPart ${minPart} and maxPart ${maxPart} for remaining ${remaining}`
+      );
+    }
+
+    // Generate a random part between minPossiblePart and maxPossiblePart
+    const part = parseFloat(
+      (
+        Math.random() * (maxPossiblePart - minPossiblePart) +
+        minPossiblePart
+      ).toFixed(2)
+    );
+
     parts.push(part);
     sum += part;
   }
 
-  // Calculate the difference (or excess) between numberRandom and the sum of parts
-  let excess = parseFloat((numberRandom - sum).toFixed(2));
+  // Adjust for any rounding errors
+  let difference = parseFloat((numberRandom - sum).toFixed(2));
 
-  // While there is excess, keep redistributing it randomly across the parts
-  while (excess !== 0) {
-    for (let i = 0; i < parts.length && excess !== 0; i++) {
-      const remainingExcess = Math.min(maxPart - parts[i], excess);
-      // Add random part of the excess to each part without exceeding maxPart
-      const addition = parseFloat((Math.random() * remainingExcess).toFixed(2));
-      if (parts[i] + addition <= maxPart) {
-        parts[i] += addition;
-        excess -= addition;
-        excess = parseFloat(excess.toFixed(2)); // Ensure no floating-point issues
-      }
-    }
+  if (difference !== 0) {
+    parts[parts.length - 1] += difference;
   }
 
-  if (parts.some((part) => part > maxPart)) {
-    logger.warn(
-      `Excess ${excess} after distributing ${numberRandom} into ${N} parts`
-    );
-    throw new Error(
-      'Excess ${excess} after distributing ${numberRandom} into ${N} parts'
-    );
+  // Validate that all parts are within minPart and maxPart
+  if (parts.some((part) => part < minPart || part > maxPart)) {
+    throw new Error('Some parts are out of bounds after distribution');
   }
 
   return parts.map((part) => parseFloat(part.toFixed(2))); // Rounds to two decimal places

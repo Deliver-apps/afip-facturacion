@@ -25,6 +25,7 @@ import { AppDataSource } from './data-source';
 import { Status } from './types/status.types';
 import { Jobs } from './entities/Jobs.entity';
 import { executePendingJobs } from './crons/handlerJobs';
+import axios from 'axios';
 
 const app = express();
 const PORT = config.port ?? 3000;
@@ -67,7 +68,15 @@ app.post('/billC', async (req: Request, res: Response) => {
   const randomNumber = getRandomNumberBetween(min, max);
 
   // Divide the random number into N parts
-  const parts = divideNumberRandomly(randomNumber, totalParts);
+  let parts: number[] = [];
+  try {
+    parts = divideNumberRandomly(randomNumber, totalParts);
+  } catch (error: any) {
+    console.error(error);
+    return res
+      .status(500)
+      .send('Error dividiendo el numero aleatorio' + error.message);
+  }
 
   // Calculate the total
   const total = sumParts(parts);
@@ -103,6 +112,32 @@ app.post('/billC', async (req: Request, res: Response) => {
     console.error(JSON.stringify(error));
   }
 
+  const soapXML = `
+     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+     xmlns:a5="http://a5.soap.ws.server.puc.sr/">
+       <soapenv:Header/>
+       <soapenv:Body>
+         <a5:dummy/>
+       </soapenv:Body>
+     </soapenv:Envelope>
+   `;
+
+  const soapURL =
+    'https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL';
+
+  try {
+    const response = await axios.post(soapURL, soapXML, {
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: '', // Incluye tu acción SOAP si es requerida
+      },
+    });
+
+    console.log('Respuesta del servidor:', response.data);
+  } catch (error) {
+    console.error('Error al realizar la solicitud SOAP:', error);
+  }
+
   res.send({
     randomNumber,
     parts,
@@ -123,7 +158,7 @@ AppDataSource.initialize()
     app.use('/api', vaultRoutes);
     app.use('/api', facturacionRouter);
 
-    executePendingJobs();
+    //executePendingJobs();
 
     app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
