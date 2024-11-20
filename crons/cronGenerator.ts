@@ -26,56 +26,66 @@ export function scheduleCronJobBill(
       );
 
       try {
-        const user = await getUserById(userId);
-        const { cert, key } = await getUserCertificateAndKey(userId);
+        if (jobId) {
+          const job = await AppDataSource.getRepository(Jobs).findOne({
+            where: { id: jobId },
+          });
 
-        if (!cert || !key) {
-          logger.error('No se pudo obtener el certificado y clave');
-          throw new Error('No se pudo obtener el certificado y clave');
-        }
-
-        const afip = new Afip({
-          CUIT: user?.username,
-          cert,
-          key,
-          production: true,
-          access_token: config.afipSdkToken,
-        });
-
-        const data = {
-          CantReg: 1,
-          PtoVta: salePoint,
-          CbteTipo: 11,
-          Concepto: 1,
-          DocTipo: 99,
-          DocNro: 0,
-          CbteFch: parseInt(
-            new Date().toISOString().slice(0, 10).replace(/-/g, '')
-          ),
-          ImpTotal: valueToBill,
-          ImpNeto: valueToBill,
-          ImpIVA: 0,
-          MonId: 'PES',
-          MonCotiz: 1,
-        };
-
-        let response = await afip.ElectronicBilling.createNextVoucher(data);
-
-        if (!response) {
-          logger.error('Error al generar factura');
-          console.error(response);
-        }
-
-        await AppDataSource.transaction(async (manager) => {
-          const getJob = await manager
-            .getRepository(Jobs)
-            .findOne({ where: { id: jobId } });
-          if (!getJob) {
-            throw new Error('No se pudo obtener el job');
+          if (!job || job.status === Status.Completed) {
+            throw new Error('No se pudo obtener el job o ya fue ejecutado');
           }
-          getJob.status = Status.Completed;
-          await manager.save(getJob);
-        });
+
+          const user = await getUserById(userId);
+          const { cert, key } = await getUserCertificateAndKey(userId);
+
+          if (!cert || !key) {
+            logger.error('No se pudo obtener el certificado y clave');
+            throw new Error('No se pudo obtener el certificado y clave');
+          }
+
+          const afip = new Afip({
+            CUIT: user?.username,
+            cert,
+            key,
+            production: true,
+            access_token: config.afipSdkToken,
+          });
+
+          const data = {
+            CantReg: 1,
+            PtoVta: salePoint,
+            CbteTipo: 11,
+            Concepto: 1,
+            DocTipo: 99,
+            DocNro: 0,
+            CbteFch: parseInt(
+              new Date().toISOString().slice(0, 10).replace(/-/g, '')
+            ),
+            ImpTotal: valueToBill,
+            ImpNeto: valueToBill,
+            ImpIVA: 0,
+            MonId: 'PES',
+            MonCotiz: 1,
+          };
+
+          let response = await afip.ElectronicBilling.createNextVoucher(data);
+
+          if (!response) {
+            logger.error('Error al generar factura');
+            console.error(response);
+          }
+
+          await AppDataSource.transaction(async (manager) => {
+            const getJob = await manager
+              .getRepository(Jobs)
+              .findOne({ where: { id: jobId } });
+            if (!getJob) {
+              throw new Error('No se pudo obtener el job');
+            }
+            getJob.status = Status.Completed;
+            await manager.save(getJob);
+          });
+        }
       } catch (error) {
         await AppDataSource.transaction(async (manager) => {
           const getJob = await manager

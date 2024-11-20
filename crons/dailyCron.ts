@@ -97,7 +97,6 @@ export async function scheduleRandomCronJobsForToday(
 
   for (const [index, cronTime] of cronTimes.entries()) {
     try {
-      const taskName = `RandomCronJob_ ${cronTime}`;
       await AppDataSource.transaction(async (manager) => {
         const newJob = AppDataSource.getRepository(Jobs).create({
           cronExpression: cronTime,
@@ -107,6 +106,7 @@ export async function scheduleRandomCronJobsForToday(
           salePoint,
           external,
         });
+        const taskName = `Job:${newJob.id}`;
 
         scheduleCronJobBill(
           cronTime,
