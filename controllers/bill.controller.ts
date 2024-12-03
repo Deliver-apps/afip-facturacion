@@ -37,13 +37,19 @@ export const BillController = {
   async retryBillController(req: Request, res: Response, next: NextFunction) {
     const { jobId } = req.body;
 
+    logger.warn('Retrying bill: ' + jobId);
+
     try {
       const job = await AppDataSource.getRepository(Jobs).findOne({
         where: { id: jobId },
       });
 
       if (!job) {
-        return res.status(404).send('Job not found');
+        return res.status(404).send('Job no encontrado');
+      }
+
+      if (job.status !== Status.Failed) {
+        return res.status(400).send('Job no está en estado fallido');
       }
 
       const { cert, key } = await getUserCertificateAndKey(job.userId);
@@ -80,6 +86,9 @@ export const BillController = {
         logger.error('Error al generar factura');
         job.status = Status.Failed;
         await AppDataSource.getRepository(Jobs).save(job);
+        return res.status(500).json({
+          message: 'Error al generar factura',
+        });
       }
       job.status = Status.Completed;
       await AppDataSource.getRepository(Jobs).save(job);

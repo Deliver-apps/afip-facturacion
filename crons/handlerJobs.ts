@@ -9,7 +9,6 @@ import Afip from '@afipsdk/afip.js';
 import { getUserById } from '../services/user.service';
 import { config } from '../config/config';
 import { scheduleCronJobBill } from './cronGenerator';
-import { In, Not } from 'typeorm';
 
 async function executePendingJobs() {
   try {
@@ -17,14 +16,14 @@ async function executePendingJobs() {
       where: { status: Status.Pending },
     });
 
+    logger.warn(`Found ${getPendingJobs.length} pending jobs`);
+
     const timezone = 'America/Argentina/Buenos_Aires';
 
     const filteredJobsToRun = getPendingJobs.filter((job) => {
       try {
-        const buenosAiresNow = moment.tz(new Date(), timezone);
-        const startOfCurrentMonth = buenosAiresNow.clone().startOf('month');
-        const today = new Date();
-        const monthBefore = moment.tz(today, timezone).subtract(1, 'month');
+        const buenosAiresNow = moment.tz(new Date(), timezone).startOf('day'); // Start of today
+        const today = buenosAiresNow.clone();
 
         // Parse the cron expression with timezone
         const interval = parser.parseExpression(job.cronExpression, {
@@ -43,11 +42,8 @@ async function executePendingJobs() {
           return false; // Exclude the job
         }
 
-        // Check if the last execution was in the current month
-        if (
-          lastExecutionMoment.isAfter(startOfCurrentMonth) &&
-          job.createdAt.getMonth() === buenosAiresNow.month()
-        ) {
+        // Check if the last execution was before today
+        if (lastExecutionMoment.isBefore(today)) {
           // Include the job
           return true;
         } else {
@@ -63,54 +59,53 @@ async function executePendingJobs() {
       }
     });
 
-    // const filterFutureJobs = getPendingJobs.filter((job) => {
-    //   try {
-    //     const buenosAiresNow = moment.tz(new Date(), timezone).startOf('day'); // Start of today in the specified timezone
+    logger.warn(`Found ${filteredJobsToRun.length} old jobs`);
 
-    //     // Parse the cron expression with timezone
-    //     const interval = parser.parseExpression(job.cronExpression, {
-    //       tz: timezone,
-    //       currentDate: buenosAiresNow.toDate(), // Start checking from today
-    //     });
+    const filterFutureJobs = getPendingJobs.filter((job) => {
+      try {
+        const buenosAiresNow = moment.tz(new Date(), timezone).startOf('day'); // Start of today in the specified timezone
 
-    //     let nextExecutionMoment;
+        // Parse the cron expression with timezone
+        const interval = parser.parseExpression(job.cronExpression, {
+          tz: timezone,
+          currentDate: buenosAiresNow.toDate(), // Start checking from today
+        });
 
-    //     try {
-    //       // Get the next execution time
-    //       const nextExecution = interval.next().toDate();
-    //       nextExecutionMoment = moment.tz(nextExecution, timezone);
-    //     } catch (e) {
-    //       return false; // Exclude the job if no next execution is found
-    //     }
+        let nextExecutionMoment;
 
-    //     const currentMonth = buenosAiresNow.month();
-    //     const nextExecutionMonth = nextExecutionMoment.month();
+        try {
+          // Get the next execution time
+          const nextExecution = interval.next().toDate();
+          nextExecutionMoment = moment.tz(nextExecution, timezone);
+        } catch (e) {
+          return false; // Exclude the job if no next execution is found
+        }
 
-    //     // Only include jobs with next execution in the current month
-    //     if (
-    //       nextExecutionMoment.isAfter(buenosAiresNow) &&
-    //       job.createdAt.getMonth() === currentMonth &&
-    //       nextExecutionMonth === currentMonth
-    //     ) {
-    //       return true;
-    //     } else {
-    //       return false;
-    //     }
-    //   } catch (error) {
-    //     console.error(
-    //       `Error parsing cron expression for job ${job.id}:`,
-    //       error
-    //     );
-    //     return false; // Exclude the job on error
-    //   }
-    // });
-    console.log('DATA2: ' + filteredJobsToRun[0]);
-    // console.log('DATA3: ' + filterFutureJobs.length);
+        const currentMonth = buenosAiresNow.month();
+        const nextExecutionMonth = nextExecutionMoment.month();
 
-    let jobCount = 0;
+        // Only include jobs with next execution in the current month
+        if (
+          nextExecutionMoment.isAfter(buenosAiresNow) &&
+          job.createdAt.getMonth() === currentMonth &&
+          nextExecutionMonth === currentMonth
+        ) {
+          return true;
+        } else {
+          return false;
+        }
+      } catch (error) {
+        console.error(
+          `Error parsing cron expression for job ${job.id}:`,
+          error
+        );
+        return false; // Exclude the job on error
+      }
+    });
+
+    logger.warn(`Found ${filterFutureJobs.length} future jobs`);
 
     for (const job of filteredJobsToRun) {
-      jobCount++;
       logger.info(`Executing job: ${job.id}`);
       try {
         const { cert, key } = await getUserCertificateAndKey(job.userId);
@@ -124,27 +119,6 @@ async function executePendingJobs() {
           access_token: config.afipSdkToken,
         });
 
-        // Determine the date offset based on jobCount
-        let dateOffsetInDays = 0;
-        if (jobCount <= 195) {
-          dateOffsetInDays = 5;
-        } else if (jobCount <= 195 + 208) {
-          dateOffsetInDays = 4;
-        } else if (jobCount <= 195 + 208 + 102) {
-          dateOffsetInDays = 3;
-        } else if (jobCount <= 195 + 208 + 102 + 251) {
-          dateOffsetInDays = 2;
-        }
-
-        // Adjust the date accordingly
-        const adjustedDate = new Date();
-        adjustedDate.setDate(adjustedDate.getDate() - dateOffsetInDays);
-        const adjustedDateString = adjustedDate
-          .toISOString()
-          .slice(0, 10)
-          .replace(/-/g, '');
-
-        // Generate the voucher
         const response = await afip.ElectronicBilling.createNextVoucher({
           CantReg: 1, // The number of invoices to issue
           PtoVta: job.salePoint, // Point of sale number (the one you just created)
@@ -152,7 +126,9 @@ async function executePendingJobs() {
           Concepto: 1, // Products
           DocTipo: 99, // Document type (99 for Consumidor Final)
           DocNro: 0, // Document number (0 for Consumidor Final)
-          CbteFch: adjustedDateString, // Date in format YYYYMMDD
+          CbteFch: parseInt(
+            new Date().toISOString().slice(0, 10).replace(/-/g, '')
+          ), // Date in format YYYYMMDD
           ImpTotal: job.valueToBill, // Total amount
           ImpNeto: job.valueToBill, // Net amount
           ImpIVA: 0, // VAT amount
@@ -170,32 +146,29 @@ async function executePendingJobs() {
         }
         job.status = Status.Completed;
         await AppDataSource.getRepository(Jobs).save(job);
-
-        logger.info(
-          `Job ${job.id} executed successfully on:${adjustedDateString}`
-        );
+        logger.info(`Job ${job.id} executed successfully`);
       } catch (error) {
         job.status = Status.Failed;
         await AppDataSource.getRepository(Jobs).save(job);
-        console.error(`Error processing job ${job.id}`, error);
+        console.error(`Error parsing cron expression for last job`, error);
       }
     }
 
-    // for (const job of filterFutureJobs) {
-    //   const cron = job.cronExpression;
-    //   const taskName = `Job:${job.id}`;
-    //   scheduleCronJobBill(
-    //     cron,
-    //     taskName,
-    //     job.valueToBill,
-    //     job.salePoint,
-    //     'A',
-    //     job.userId,
-    //     job.id
-    //   );
+    for (const job of filterFutureJobs) {
+      const cron = job.cronExpression;
+      const taskName = `Job:${job.id}`;
+      scheduleCronJobBill(
+        cron,
+        taskName,
+        job.valueToBill,
+        job.salePoint,
+        'A',
+        job.userId,
+        job.id
+      );
 
-    //   logger.info(`Scheduled job: ${taskName} with expression: ${cron}`);
-    // }
+      logger.info(`Scheduled job: ${taskName} with expression: ${cron}`);
+    }
   } catch (error) {
     console.error(`Error parsing cron expression for last job`, error);
   }
