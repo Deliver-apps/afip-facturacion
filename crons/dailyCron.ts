@@ -40,7 +40,14 @@ export async function scheduleRandomCronJobsForToday(
   const randomNumber = getRandomNumberBetween(minValue, maxValue);
 
   logger.error(`Random number: ${randomNumber} and times: ${times}`);
-  const parts = divideNumberRandomly(randomNumber, times);
+  let parts: number[] = [];
+  try {
+    parts = divideNumberRandomly(randomNumber, times);
+  } catch (error: any) {
+    console.error(error);
+    return;
+  }
+
   const datesFromCron = cronTimes
     .map((time) => {
       const stringTime = cronToTime(time);

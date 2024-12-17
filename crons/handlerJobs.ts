@@ -19,94 +19,103 @@ async function executePendingJobs() {
     logger.warn(`Found ${getPendingJobs.length} pending jobs`);
 
     const timezone = 'America/Argentina/Buenos_Aires';
+    const now = moment.tz(new Date(), timezone);
 
-    const filteredJobsToRun = getPendingJobs.filter((job) => {
+    // Identify Overdue Jobs
+    const overdueJobs: Jobs[] = [];
+    for (const job of getPendingJobs) {
       try {
-        const buenosAiresNow = moment.tz(new Date(), timezone).startOf('day'); // Start of today
-        const today = buenosAiresNow.clone();
-
-        // Parse the cron expression with timezone
         const interval = parser.parseExpression(job.cronExpression, {
           tz: timezone,
-          currentDate: buenosAiresNow.toDate(),
+          currentDate: now.toDate(),
         });
 
-        let lastExecutionMoment;
-
+        let prevExecutionTime;
         try {
-          // Get the last execution time
-          const lastExecution = interval.prev().toDate();
-          lastExecutionMoment = moment.tz(lastExecution, timezone);
+          prevExecutionTime = moment.tz(interval.prev().toDate(), timezone);
         } catch (e) {
-          // No previous executions, job starts in the future
-          return false; // Exclude the job
+          // If we can't find a previous execution, the job hasn't had a past run.
+          // This might mean it's never run before. We'll check next execution soon.
+          prevExecutionTime = null;
         }
 
-        // Check if the last execution was before today
-        if (lastExecutionMoment.isBefore(today)) {
-          // Include the job
-          return true;
+        if (prevExecutionTime) {
+          // Check if this past scheduled run happened after the job was created.
+          if (
+            prevExecutionTime.isAfter(moment(job.createdAt)) &&
+            prevExecutionTime.isBefore(now)
+          ) {
+            // The job was supposed to run in the past (after creation time),
+            // but it's still pending, so it's overdue.
+            console.log(
+              'Job is overdue:',
+              job.id,
+              prevExecutionTime.toDate(),
+              job.createdAt,
+              job.cronExpression
+            );
+            overdueJobs.push(job);
+          }
         } else {
-          // Exclude the job
-          return false;
+          // No prev run found. Let's check next execution:
+          // If there's a next scheduled run that's already in the past relative to `now`,
+          // that would mean we missed it. But by definition, interval.next() won't give a past time.
+          // If we suspect a missed first run, consider adjusting logic here:
+          // However, typically no prev run means it starts in the future, so no action here.
         }
       } catch (error) {
         console.error(
           `Error parsing cron expression for job ${job.id}:`,
           error
         );
-        return false; // Exclude the job on error
       }
-    });
+    }
 
-    logger.warn(`Found ${filteredJobsToRun.length} old jobs`);
+    logger.warn(
+      `Found ${overdueJobs.length} jobs that are overdue (due to run now)`
+    );
 
-    const filterFutureJobs = getPendingJobs.filter((job) => {
+    // Remove overdue jobs from the pending jobs list before checking future jobs
+    const pendingForFuture = getPendingJobs.filter(
+      (job) => !overdueJobs.some((overdueJob) => overdueJob.id === job.id)
+    );
+
+    // Identify Future Jobs
+    const futureJobs = [];
+    for (const job of pendingForFuture) {
       try {
-        const buenosAiresNow = moment.tz(new Date(), timezone).startOf('day'); // Start of today in the specified timezone
-
-        // Parse the cron expression with timezone
         const interval = parser.parseExpression(job.cronExpression, {
           tz: timezone,
-          currentDate: buenosAiresNow.toDate(), // Start checking from today
+          currentDate: now.toDate(),
         });
 
-        let nextExecutionMoment;
-
+        let nextExecutionTime;
         try {
-          // Get the next execution time
-          const nextExecution = interval.next().toDate();
-          nextExecutionMoment = moment.tz(nextExecution, timezone);
+          nextExecutionTime = moment.tz(interval.next().toDate(), timezone);
         } catch (e) {
-          return false; // Exclude the job if no next execution is found
+          // If there's no next execution time, skip
+          continue;
         }
 
-        const currentMonth = buenosAiresNow.month();
-        const nextExecutionMonth = nextExecutionMoment.month();
-
-        // Only include jobs with next execution in the current month
-        if (
-          nextExecutionMoment.isAfter(buenosAiresNow) &&
-          job.createdAt.getMonth() === currentMonth &&
-          nextExecutionMonth === currentMonth
-        ) {
-          return true;
-        } else {
-          return false;
+        // If next execution is strictly in the future
+        if (nextExecutionTime.isAfter(now)) {
+          // Optional: Check if it's in the current month
+          if (nextExecutionTime.month() === now.month()) {
+            futureJobs.push(job);
+          }
         }
       } catch (error) {
         console.error(
           `Error parsing cron expression for job ${job.id}:`,
           error
         );
-        return false; // Exclude the job on error
       }
-    });
+    }
 
-    logger.warn(`Found ${filterFutureJobs.length} future jobs`);
+    logger.warn(`Found ${futureJobs.length} future jobs scheduled`);
 
-    for (const job of filteredJobsToRun) {
-      logger.info(`Executing job: ${job.id}`);
+    for (const job of overdueJobs) {
+      logger.info(`Executing overdue job: ${job.id}`);
       try {
         const { cert, key } = await getUserCertificateAndKey(job.userId);
         const user = await getUserById(job.userId);
@@ -120,41 +129,41 @@ async function executePendingJobs() {
         });
 
         const response = await afip.ElectronicBilling.createNextVoucher({
-          CantReg: 1, // The number of invoices to issue
-          PtoVta: job.salePoint, // Point of sale number (the one you just created)
-          CbteTipo: 11, // Type of document (11 for Electronic Billing)
-          Concepto: 1, // Products
-          DocTipo: 99, // Document type (99 for Consumidor Final)
-          DocNro: 0, // Document number (0 for Consumidor Final)
+          CantReg: 1,
+          PtoVta: job.salePoint,
+          CbteTipo: 11,
+          Concepto: 1,
+          DocTipo: 99,
+          DocNro: 0,
           CbteFch: parseInt(
             new Date().toISOString().slice(0, 10).replace(/-/g, '')
-          ), // Date in format YYYYMMDD
-          ImpTotal: job.valueToBill, // Total amount
-          ImpNeto: job.valueToBill, // Net amount
-          ImpIVA: 0, // VAT amount
-          MonId: 'PES', // Currency
-          MonCotiz: 1, // Currency rate
+          ),
+          ImpTotal: job.valueToBill,
+          ImpNeto: job.valueToBill,
+          ImpIVA: 0,
+          MonId: 'PES',
+          MonCotiz: 1,
         });
 
         if (response) {
-          logger.info('Factura generada' + response.CAE);
+          logger.info('Factura generada CAE: ' + response.CAE);
+          job.status = Status.Completed;
         } else {
           logger.error('Error al generar factura');
           job.status = Status.Failed;
-          await AppDataSource.getRepository(Jobs).save(job);
-          continue;
         }
-        job.status = Status.Completed;
+
         await AppDataSource.getRepository(Jobs).save(job);
         logger.info(`Job ${job.id} executed successfully`);
       } catch (error) {
         job.status = Status.Failed;
         await AppDataSource.getRepository(Jobs).save(job);
-        console.error(`Error parsing cron expression for last job`, error);
+        console.error(`Error executing overdue job ${job.id}`, error);
       }
     }
 
-    for (const job of filterFutureJobs) {
+    // Schedule future jobs
+    for (const job of futureJobs) {
       const cron = job.cronExpression;
       const taskName = `Job:${job.id}`;
       scheduleCronJobBill(
@@ -166,11 +175,10 @@ async function executePendingJobs() {
         job.userId,
         job.id
       );
-
-      logger.info(`Scheduled job: ${taskName} with expression: ${cron}`);
+      logger.info(`Scheduled future job: ${taskName} with expression: ${cron}`);
     }
   } catch (error) {
-    console.error(`Error parsing cron expression for last job`, error);
+    console.error(`Error processing jobs:`, error);
   }
 }
 
