@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import {
   loadUserCertificateAndKey,
   getUserCertificateAndKey,
+  getOkFromVault,
 } from '../services/vault.service';
 import { logger } from '../logger';
 
@@ -33,6 +34,24 @@ export const getCertificateController = async (req: Request, res: Response) => {
       return res.status(400).send('Invalid userId');
     }
     const certificate = await getUserCertificateAndKey(userIdNumber);
+    return res.status(200).json(certificate);
+  } catch (error: any) {
+    logger.error(`Error reading from Vault: ${error.message}`);
+    return res.status(500).send(error.message);
+  }
+};
+
+export const getCertificateControllerOk = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { username } = req.params;
+    if (!username) {
+      return res.status(400).send('Invalid username');
+    }
+    const certificate = await getOkFromVault(username);
+
     return res.status(200).json(certificate);
   } catch (error: any) {
     logger.error(`Error reading from Vault: ${error.message}`);

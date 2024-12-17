@@ -5,14 +5,41 @@ type UserRow = Database['public']['Tables']['facturacion_users']['Row'];
 type UserInsert = Database['public']['Tables']['facturacion_users']['Insert'];
 type UserUpdate = Database['public']['Tables']['facturacion_users']['Update'];
 
-export const createUser = async (user: UserInsert): Promise<UserRow | null> => {
-  const { data, error } = await supabase
+export const createUser = async (user: UserInsert) => {
+  const validateData = (user: UserInsert) => {
+    if (!user.real_name) throw new Error('Username is required');
+    if (!user.username) throw new Error('Username is required');
+    if (!user.password) throw new Error('Password is required');
+    if (!user.external_client) throw new Error('External client is required');
+  };
+
+  const checkAlreadyExist = async (username: string) => {
+    const { data, error } = await supabase
+      .from('facturacion_users')
+      .select('*')
+      .eq('username', username)
+      .maybeSingle(); // ← cambia aquí
+
+    if (error) throw new Error(error.message);
+    return data; // data será el objeto o `null` si no existía
+  };
+
+  const oldUser = await checkAlreadyExist(user.username!);
+  if (oldUser) return { status: 'exists' };
+
+  validateData(user);
+  const { error } = await supabase
     .from('facturacion_users')
-    .insert(user)
+    .insert({
+      ...user,
+      username: user.username?.toUpperCase(),
+    })
     .single();
 
   if (error) throw new Error(error.message);
-  return data;
+  return {
+    status: 'ok',
+  };
 };
 
 export const getAllUsers = async (
@@ -24,7 +51,7 @@ export const getAllUsers = async (
       .from('facturacion_users')
       .select('*')
       .order('id', { ascending: true })
-      .select('id, real_name, username');
+      .select('id, real_name, username, password');
     if (error) throw new Error(error.message);
     return data;
   }
@@ -33,7 +60,7 @@ export const getAllUsers = async (
     .select('*')
     .eq('external_client', false)
     .order('id', { ascending: true })
-    .select('id, real_name, username');
+    .select('id, real_name, username, password');
   if (error) throw new Error(error.message);
   return data;
 };
@@ -43,6 +70,19 @@ export const getUserById = async (id: number): Promise<UserRow | null> => {
     .from('facturacion_users')
     .select('*')
     .eq('id', id)
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const getUserByUsername = async (
+  username: string
+): Promise<UserRow | null> => {
+  const { data, error } = await supabase
+    .from('facturacion_users')
+    .select('*')
+    .eq('username', username)
     .single();
 
   if (error) throw new Error(error.message);

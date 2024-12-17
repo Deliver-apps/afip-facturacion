@@ -2,6 +2,19 @@ import { Between } from 'typeorm';
 import { AppDataSource } from '../data-source';
 import { Jobs } from '../entities/Jobs.entity';
 
+export const deleteAllJobsFromAUser = async (userId: number) => {
+  const jobs = await AppDataSource.getRepository(Jobs).find({
+    where: {
+      userId,
+    },
+  });
+
+  console.table(jobs);
+  for (const job of jobs) {
+    await AppDataSource.getRepository(Jobs).delete({ userId });
+  }
+};
+
 //Vamos a reducir este servicio al mes "En curso" y al mes anterior
 export const getAllJobs = async (external: boolean) => {
   const today = new Date();

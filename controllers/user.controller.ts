@@ -18,10 +18,14 @@ export const createUserController = async (
 ) => {
   try {
     const user = req.body;
+    console.warn(`Creating user: ${user}`);
     const data = await createUser(user);
     return res.status(201).json(data);
   } catch (error: any) {
     logger.error(`Error creating user: ${error.message}`);
+    if (error.message.includes('required')) {
+      return res.status(400).send(error.message);
+    }
     return res.status(500).send(error.message);
   }
 };
