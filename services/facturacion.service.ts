@@ -1,6 +1,7 @@
-import { Between } from 'typeorm';
+import { Between, In, Not } from 'typeorm';
 import { AppDataSource } from '../data-source';
 import { Jobs } from '../entities/Jobs.entity';
+import { Status } from '../types/status.types';
 
 export const deleteAllJobsFromAUser = async (userId: number) => {
   const jobs = await AppDataSource.getRepository(Jobs).find({
@@ -13,6 +14,17 @@ export const deleteAllJobsFromAUser = async (userId: number) => {
   for (const job of jobs) {
     await AppDataSource.getRepository(Jobs).delete({ userId });
   }
+};
+
+export const makeFailAllJobs = async (jobsId: number[]) => {
+  console.table(jobsId);
+  const repo = AppDataSource.getRepository(Jobs);
+
+  // Actualiza todos los jobs cuyo id está en jobsId **y** cuyo status NO es Completed
+  await repo.update(
+    { id: In(jobsId), status: Not(Status.Completed) },
+    { status: Status.Failed }
+  );
 };
 
 //Vamos a reducir este servicio al mes "En curso" y al mes anterior
