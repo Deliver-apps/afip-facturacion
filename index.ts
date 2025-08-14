@@ -126,7 +126,7 @@ AppDataSource.initialize()
     app.use('/api', vaultRoutes);
     app.use('/api', facturacionRouter);
 
-    // executePendingJobs();
+    executePendingJobs();
 
     app.listen(3000, () => {
       console.log(`Server is running on http://localhost:${PORT}`);

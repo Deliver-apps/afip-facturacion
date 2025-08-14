@@ -21,7 +21,7 @@ async function executePendingJobs() {
     const timezone = 'America/Argentina/Buenos_Aires';
     const now = moment.tz(new Date(), timezone);
 
-    // Identify Overdue Jobs
+    // Identify Overdue Jobs - jobs that should have already run
     const overdueJobs: Jobs[] = [];
     for (const job of getPendingJobs) {
       try {
@@ -30,41 +30,29 @@ async function executePendingJobs() {
           currentDate: now.toDate(),
         });
 
+        // Check if there was a previous execution time that should have happened
         let prevExecutionTime;
         try {
           prevExecutionTime = moment.tz(interval.prev().toDate(), timezone);
-        } catch (e) {
-          // If we can't find a previous execution, the job hasn't had a past run.
-          // This might mean it's never run before. We'll check next execution soon.
-          prevExecutionTime = null;
-        }
-
-        if (prevExecutionTime) {
-          // Check if this past scheduled run happened after the job was created.
+          
+          // If the previous execution time is after job creation and before now,
+          // and the job is still pending, it's overdue
           if (
             prevExecutionTime.isAfter(moment(job.createdAt)) &&
             prevExecutionTime.isBefore(now)
           ) {
-            // The job was supposed to run in the past (after creation time),
-            // but it's still pending, so it's overdue.
-            console.log(
-              'Job is overdue:',
-              job.id,
-              prevExecutionTime.toDate(),
-              job.createdAt,
-              job.cronExpression
-            );
+            // logger.info(
+            //   `Job ${job.id} is overdue - should have run at ${prevExecutionTime.format('YYYY-MM-DD HH:mm:ss')}`
+            // );
             overdueJobs.push(job);
           }
-        } else {
-          // No prev run found. Let's check next execution:
-          // If there's a next scheduled run that's already in the past relative to `now`,
-          // that would mean we missed it. But by definition, interval.next() won't give a past time.
-          // If we suspect a missed first run, consider adjusting logic here:
-          // However, typically no prev run means it starts in the future, so no action here.
+        } catch (e) {
+          // If we can't find a previous execution, the job hasn't had a past run
+          // This usually means it's scheduled for the future, so not overdue
+          logger.debug(`Job ${job.id} has no previous execution time - likely future scheduled`);
         }
       } catch (error) {
-        console.error(
+        logger.error(
           `Error parsing cron expression for job ${job.id}:`,
           error
         );
@@ -72,48 +60,11 @@ async function executePendingJobs() {
     }
 
     logger.warn(
-      `Found ${overdueJobs.length} jobs that are overdue (due to run now)`
+      `Found ${overdueJobs.length} jobs that are overdue and need immediate execution`
     );
+    logger.warn(`Total jobs: ${getPendingJobs.length}`);
 
-    // Remove overdue jobs from the pending jobs list before checking future jobs
-    const pendingForFuture = getPendingJobs.filter(
-      (job) => !overdueJobs.some((overdueJob) => overdueJob.id === job.id)
-    );
-
-    // Identify Future Jobs
-    const futureJobs = [];
-    for (const job of pendingForFuture) {
-      try {
-        const interval = parser.parseExpression(job.cronExpression, {
-          tz: timezone,
-          currentDate: now.toDate(),
-        });
-
-        let nextExecutionTime;
-        try {
-          nextExecutionTime = moment.tz(interval.next().toDate(), timezone);
-        } catch (e) {
-          // If there's no next execution time, skip
-          continue;
-        }
-
-        // If next execution is strictly in the future
-        if (nextExecutionTime.isAfter(now)) {
-          // Optional: Check if it's in the current month
-          if (nextExecutionTime.month() === now.month()) {
-            futureJobs.push(job);
-          }
-        }
-      } catch (error) {
-        console.error(
-          `Error parsing cron expression for job ${job.id}:`,
-          error
-        );
-      }
-    }
-
-    logger.warn(`Found ${futureJobs.length} future jobs scheduled`);
-
+    // Execute overdue jobs immediately
     for (const job of overdueJobs) {
       logger.info(`Executing overdue job: ${job.id}`);
       try {
@@ -158,7 +109,41 @@ async function executePendingJobs() {
       } catch (error) {
         job.status = Status.Failed;
         await AppDataSource.getRepository(Jobs).save(job);
-        console.error(`Error executing overdue job ${job.id}`, error);
+        logger.error(`Error executing overdue job ${job.id}:`, error);
+      }
+    }
+
+    // COMMENTED OUT: Future jobs scheduling
+    // This section has been commented out as requested - only overdue jobs are executed
+    // Identify Future Jobs
+    const futureJobs = [];
+    for (const job of getPendingJobs) {
+      try {
+        const interval = parser.parseExpression(job.cronExpression, {
+          tz: timezone,
+          currentDate: now.toDate(),
+        });
+
+        let nextExecutionTime;
+        try {
+          nextExecutionTime = moment.tz(interval.next().toDate(), timezone);
+        } catch (e) {
+          // If there's no next execution time, skip
+          continue;
+        }
+
+        // If next execution is strictly in the future
+        if (nextExecutionTime.isAfter(now)) {
+          // Optional: Check if it's in the current month
+          if (nextExecutionTime.month() === now.month()) {
+            futureJobs.push(job);
+          }
+        }
+      } catch (error) {
+        logger.error(
+          `Error parsing cron expression for job ${job.id}:`,
+          error
+        );
       }
     }
 
@@ -177,8 +162,11 @@ async function executePendingJobs() {
       );
       logger.info(`Scheduled future job: ${taskName} with expression: ${cron}`);
     }
+
+
+    logger.info(`Job processing completed. Executed ${futureJobs.length} overdue jobs.`);
   } catch (error) {
-    console.error(`Error processing jobs:`, error);
+    logger.error(`Error processing jobs:`, error);
   }
 }
 

@@ -25,7 +25,16 @@ export const createUser = async (user: UserInsert) => {
   };
 
   const oldUser = await checkAlreadyExist(user.username!);
-  if (oldUser) return { status: 'exists' };
+  //update password if user exists
+  if (oldUser) {
+    const { error } = await supabase
+      .from('facturacion_users')
+      .update({ password: user.password })
+      .eq('id', oldUser.id)
+      .single();
+    if (error) throw new Error(error.message);
+    return { status: 'exists' };
+  }
 
   validateData(user);
   const { error } = await supabase
