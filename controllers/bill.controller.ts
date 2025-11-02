@@ -62,6 +62,10 @@ export const BillController = {
         production: true,
         access_token: config.afipSdkToken,
       });
+      const today = new Date();
+      const fourDaysAgo = new Date(today.setDate(today.getDate() - 4));
+      const fourDaysAgoFormatted = fourDaysAgo.toISOString().slice(0, 10).replace(/-/g, '');
+      const todayFormatted = today.toISOString().slice(0, 10).replace(/-/g, '');
 
       const response = await afip.ElectronicBilling.createNextVoucher({
         CantReg: 1, // The number of invoices to issue
@@ -71,7 +75,7 @@ export const BillController = {
         DocTipo: 99, // Document type (99 for Consumidor Final)
         DocNro: 0, // Document number (0 for Consumidor Final)
         CbteFch: parseInt(
-          new Date().toISOString().slice(0, 10).replace(/-/g, '')
+          todayFormatted
         ), // Date in format YYYYMMDD
         ImpTotal: job.valueToBill, // Total amount
         ImpNeto: job.valueToBill, // Net amount
@@ -81,6 +85,7 @@ export const BillController = {
       });
 
       if (response) {
+        console.log('conFecha: ', fourDaysAgoFormatted);
         logger.info('Factura generada: ' + response.CAE + ' para: ' + job.id);
       } else {
         logger.error('Error al generar factura');
@@ -97,6 +102,7 @@ export const BillController = {
         message: 'Bill created successfully',
       });
     } catch (error: any) {
+      logger.error(`Error in retryBillController: ${error}`);
       const job = await AppDataSource.getRepository(Jobs).findOne({
         where: { id: jobId },
       });
@@ -107,7 +113,7 @@ export const BillController = {
 
       job.status = Status.Failed;
       await AppDataSource.getRepository(Jobs).save(job);
-      logger.error(`Error in retryBillController: ${error.message}`);
+      logger.error(`Error in retryBillController: ${error}`);
       return next(error); // Forward error to error-handling middleware
     }
   },

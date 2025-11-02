@@ -10,8 +10,11 @@ export const createUser = async (user: UserInsert) => {
     if (!user.real_name) throw new Error('Username is required');
     if (!user.username) throw new Error('Username is required');
     if (!user.password) throw new Error('Password is required');
-    if (!user.external_client) throw new Error('External client is required');
+    // if (!user.external_client) throw new Error('External client is required');
   };
+  if (!user.external_client) {
+    user.external_client = false;
+  }
 
   const checkAlreadyExist = async (username: string) => {
     const { data, error } = await supabase
