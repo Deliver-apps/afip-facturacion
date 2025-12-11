@@ -1,10 +1,8 @@
-import Afip from '@afipsdk/afip.js';
 import { scheduleRandomCronJobsForToday } from '../crons/dailyCron';
-
 import { logger } from '../logger';
 import { getUserById } from './user.service';
 import { getUserCertificateAndKey } from './vault.service';
-import { config } from '../config/config';
+import { afipApiClient } from '../external/afipApiClient';
 
 export const BillService = {
   async createBill(
@@ -59,9 +57,6 @@ export const BillService = {
   ) {
     try {
       logger.info('Creando facturas ' + billNumber + parseInt(billNumber));
-      const timesDivided =
-        parseInt(billNumber) ?? Math.floor(Math.random() * (110 - 60 + 1)) + 60;
-      const today = new Date();
       const user = await getUserById(userId);
 
       if (!user) {
@@ -76,33 +71,30 @@ export const BillService = {
         throw new Error('No se pudo obtener el certificado y clave');
       }
 
-      const afip = new Afip({
-        CUIT: user.username,
-        cert,
-        key,
-        production: true,
-        access_token: config.afipSdkToken,
+      const fechaComprobante = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+      const response = await afipApiClient.createFacturaC({
+        puntoVenta: user.salePoint!,
+        fechaComprobante,
+        importeTotal: valueToBill,
+        cuitEmisor: user.username!,
+        certificado: cert,
+        clavePrivada: key,
       });
 
-      const data = {
-        ...dataToBill,
-        PtoVta: user.salePoint,
-        CbteFch: parseInt(
-          new Date().toISOString().slice(0, 10).replace(/-/g, '')
-        ),
-      };
-
-      let response = await afip.ElectronicBilling.createNextVoucher(data);
-
-      if (!response) {
-        logger.error('Error al generar factura');
-        console.error(response);
+      if (!response.success) {
+        logger.error('Error al generar factura: ' + response.message);
+        throw new Error(response.message);
       }
 
-      return response;
+      return {
+        CAE: response.data.cae,
+        CAEFchVto: response.data.caeFchVto,
+        voucher_number: response.data.numeroComprobante,
+      };
     } catch (error) {
       logger.error(error);
-      throw new Error('Error al obtener certificado y clave');
+      throw new Error('Error al crear factura');
     }
   },
 };

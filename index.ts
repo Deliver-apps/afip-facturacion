@@ -1,32 +1,18 @@
 import 'reflect-metadata';
-import Afip from '@afipsdk/afip.js';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
-import { readFileSync } from 'fs';
 import { logger } from './logger';
-import {
-  divideNumberRandomly,
-  getRandomNumberBetween,
-  sumParts,
-} from './helpers/randomized';
 import { config } from './config/config';
-import { getVaultClient } from './external/vaultClient';
 import vaultRoutes from './routes/vault.router';
 import facturacionRouter from './routes/facturacion.router';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
 import userRouter from './routes/user.router';
 import { getUserCertificateAndKey } from './services/vault.service';
-import { getAllUsers } from './helpers/usersSupabase';
 import { router } from './routes/index';
-import { generateRandomCronTimes } from './helpers/cronRandomized';
-import { cronToTime } from './helpers/parsedCron';
 import { AppDataSource } from './data-source';
-import { Status } from './types/status.types';
-import { Jobs } from './entities/Jobs.entity';
 import { executePendingJobs } from './crons/handlerJobs';
-import axios from 'axios';
 import { getUserByUsername } from './services/user.service';
+import { afipApiClient } from './external/afipApiClient';
 
 const app = express();
 const PORT = config.port ?? 3000;
@@ -88,15 +74,13 @@ app.get('/billC', async (req: Request, res: Response) => {
   try {
     const { cert, key } = await getUserCertificateAndKey(getUser.id);
 
-    const afip = new Afip({
-      CUIT: cuitToOnlyNumbers,
-      cert,
-      key,
-      production: true,
-      access_token: config.afipSdkToken,
+    const salesPointsResponse = await afipApiClient.getSalesPoints({
+      cuitEmisor: cuitToOnlyNumbers,
+      certificado: cert,
+      clavePrivada: key,
     });
-    const salesPoints = await afip.ElectronicBilling.getSalesPoints();
-    if (salesPoints.length === 0) {
+
+    if (!salesPointsResponse.success || !salesPointsResponse.data?.length) {
       res.status(400).send({
         success: false,
         message: 'No sales points found',
@@ -111,7 +95,7 @@ app.get('/billC', async (req: Request, res: Response) => {
     console.error(JSON.stringify(error));
     res.status(500).send({
       success: false,
-      message: 'Error en la conexión con AFIP SDK',
+      message: 'Error en la conexión con AFIP API',
     });
     return;
   }

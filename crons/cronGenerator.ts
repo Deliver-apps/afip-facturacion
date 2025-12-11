@@ -1,13 +1,11 @@
 import cron from 'node-cron';
 import { logger } from '../logger';
-import { getAllUsers } from '../helpers/usersSupabase';
 import { getUserCertificateAndKey } from '../services/vault.service';
-import Afip from '@afipsdk/afip.js';
-import { config } from '../config/config';
 import { getUserById } from '../services/user.service';
 import { AppDataSource } from '../data-source';
 import { Status } from '../types/status.types';
 import { Jobs } from '../entities/Jobs.entity';
+import { afipApiClient } from '../external/afipApiClient';
 
 export function scheduleCronJobBill(
   cronExpression: string,
@@ -43,37 +41,28 @@ export function scheduleCronJobBill(
             throw new Error('No se pudo obtener el certificado y clave');
           }
 
-          const afip = new Afip({
-            CUIT: user?.username,
-            cert,
-            key,
-            production: true,
-            access_token: config.afipSdkToken,
+          if (!user) {
+            logger.error('No se pudo obtener el usuario');
+            throw new Error('No se pudo obtener el usuario');
+          }
+
+          const fechaComprobante = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+          const response = await afipApiClient.createFacturaC({
+            puntoVenta: salePoint,
+            fechaComprobante,
+            importeTotal: valueToBill,
+            cuitEmisor: user.username!,
+            certificado: cert,
+            clavePrivada: key,
           });
 
-          const data = {
-            CantReg: 1,
-            PtoVta: salePoint,
-            CbteTipo: 11,
-            Concepto: 1,
-            DocTipo: 99,
-            DocNro: 0,
-            CbteFch: parseInt(
-              new Date().toISOString().slice(0, 10).replace(/-/g, '')
-            ),
-            ImpTotal: valueToBill,
-            ImpNeto: valueToBill,
-            ImpIVA: 0,
-            MonId: 'PES',
-            MonCotiz: 1,
-          };
-
-          let response = await afip.ElectronicBilling.createNextVoucher(data);
-
-          if (!response) {
-            logger.error('Error al generar factura');
-            console.error(response);
+          if (!response.success) {
+            logger.error('Error al generar factura: ' + response.message);
+            throw new Error(response.message);
           }
+
+          logger.info('Factura generada CAE: ' + response.data.cae);
 
           await AppDataSource.transaction(async (manager) => {
             const getJob = await manager

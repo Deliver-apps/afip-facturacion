@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@afipsdk/afip.js':
-        specifier: ^1.1.1
-        version: 1.1.1
       '@getbrevo/brevo':
         specifier: ^2.2.0
         version: 2.2.0
@@ -101,10 +98,6 @@ importers:
         version: 5.6.2
 
 packages:
-
-  '@afipsdk/afip.js@1.1.1':
-    resolution: {integrity: sha512-3YCkNN7Mt8vYYXnljv9w2QzS6qs8KjYcvsOPwuZdsE/8+KtY7Mu9Ax0mmu1G35aRLrjOlKwdy62hCyf/0OYPKQ==}
-    engines: {node: '>=7.0'}
 
   '@colors/colors@1.6.0':
     resolution: {integrity: sha512-Ir+AOibqzrIsL6ajt3Rz3LskB7OiMVHqltZmspbW/TJuTVuyOMirVqAkjfY6JISiLHgyNqicAC8AyHHGzNd/dA==}
@@ -1774,12 +1767,6 @@ packages:
     engines: {node: '>=10'}
 
 snapshots:
-
-  '@afipsdk/afip.js@1.1.1':
-    dependencies:
-      axios: 1.7.7
-    transitivePeerDependencies:
-      - debug
 
   '@colors/colors@1.6.0': {}
 

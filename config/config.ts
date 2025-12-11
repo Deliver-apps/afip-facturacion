@@ -5,7 +5,7 @@ export const config = {
   port: process.env.PORT,
   vaultAddress: process.env.VAULT_ADDRESS,
   vaultToken: process.env.VAULT_TOKEN,
-  afipSdkToken: process.env.AFIP_SDK_TOKEN,
+  afipApiUrl: process.env.AFIP_API_URL ?? 'http://localhost:3002',
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseKey: process.env.SUPABASE_API_KEY,
   supabaseAdminKey: process.env.SUPABASE_ADMIN_KEY,

@@ -6,8 +6,7 @@ import { Jobs } from '../entities/Jobs.entity';
 import { Status } from '../types/status.types';
 import { getUserCertificateAndKey } from '../services/vault.service';
 import { getUserById } from '../services/user.service';
-import Afip from '@afipsdk/afip.js';
-import { config } from '../config/config';
+import { afipApiClient } from '../external/afipApiClient';
 
 export const BillController = {
   async createBillController(req: Request, res: Response, next: NextFunction) {
@@ -55,52 +54,42 @@ export const BillController = {
       const { cert, key } = await getUserCertificateAndKey(job.userId);
       const user = await getUserById(job.userId);
 
-      const afip = new Afip({
-        CUIT: user?.username,
-        cert,
-        key,
-        production: true,
-        access_token: config.afipSdkToken,
-      });
-      const today = new Date();
-      const fourDaysAgo = new Date(today.setDate(today.getDate() - 4));
-      const fourDaysAgoFormatted = fourDaysAgo.toISOString().slice(0, 10).replace(/-/g, '');
-      const todayFormatted = today.toISOString().slice(0, 10).replace(/-/g, '');
+      if (!user) {
+        return res.status(404).send('User not found');
+      }
 
-      const response = await afip.ElectronicBilling.createNextVoucher({
-        CantReg: 1, // The number of invoices to issue
-        PtoVta: job.salePoint, // Point of sale number (the one you just created)
-        CbteTipo: 11, // Type of document (11 for Electronic Billing)
-        Concepto: 1, // Products
-        DocTipo: 99, // Document type (99 for Consumidor Final)
-        DocNro: 0, // Document number (0 for Consumidor Final)
-        CbteFch: parseInt(
-          todayFormatted
-        ), // Date in format YYYYMMDD
-        ImpTotal: job.valueToBill, // Total amount
-        ImpNeto: job.valueToBill, // Net amount
-        ImpIVA: 0, // VAT amount
-        MonId: 'PES', // Currency
-        MonCotiz: 1, // Currency rate
+      const todayFormatted = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+      const response = await afipApiClient.createFacturaC({
+        puntoVenta: job.salePoint,
+        fechaComprobante: todayFormatted,
+        importeTotal: job.valueToBill,
+        cuitEmisor: user.username!,
+        certificado: cert,
+        clavePrivada: key,
       });
 
-      if (response) {
-        console.log('conFecha: ', fourDaysAgoFormatted);
-        logger.info('Factura generada: ' + response.CAE + ' para: ' + job.id);
+      if (response.success) {
+        logger.info('Factura generada CAE: ' + response.data.cae + ' para: ' + job.id);
+        job.status = Status.Completed;
+        await AppDataSource.getRepository(Jobs).save(job);
+
+        return res.status(201).json({
+          message: 'Bill created successfully',
+          data: {
+            CAE: response.data.cae,
+            CAEFchVto: response.data.caeFchVto,
+            voucher_number: response.data.numeroComprobante,
+          },
+        });
       } else {
-        logger.error('Error al generar factura');
+        logger.error('Error al generar factura: ' + response.message);
         job.status = Status.Failed;
         await AppDataSource.getRepository(Jobs).save(job);
         return res.status(500).json({
-          message: 'Error al generar factura',
+          message: 'Error al generar factura: ' + response.message,
         });
       }
-      job.status = Status.Completed;
-      await AppDataSource.getRepository(Jobs).save(job);
-
-      return res.status(201).json({
-        message: 'Bill created successfully',
-      });
     } catch (error: any) {
       logger.error(`Error in retryBillController: ${error}`);
       const job = await AppDataSource.getRepository(Jobs).findOne({

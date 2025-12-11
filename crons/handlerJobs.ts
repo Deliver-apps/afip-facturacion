@@ -5,10 +5,9 @@ import { Status } from '../types/status.types';
 import parser from 'cron-parser';
 import moment from 'moment-timezone';
 import { getUserCertificateAndKey } from '../services/vault.service';
-import Afip from '@afipsdk/afip.js';
 import { getUserById } from '../services/user.service';
-import { config } from '../config/config';
 import { scheduleCronJobBill } from './cronGenerator';
+import { afipApiClient } from '../external/afipApiClient';
 
 async function executePendingJobs() {
   try {
@@ -41,9 +40,6 @@ async function executePendingJobs() {
             prevExecutionTime.isAfter(moment(job.createdAt)) &&
             prevExecutionTime.isBefore(now)
           ) {
-            // logger.info(
-            //   `Job ${job.id} is overdue - should have run at ${prevExecutionTime.format('YYYY-MM-DD HH:mm:ss')}`
-            // );
             overdueJobs.push(job);
           }
         } catch (e) {
@@ -71,36 +67,29 @@ async function executePendingJobs() {
         const { cert, key } = await getUserCertificateAndKey(job.userId);
         const user = await getUserById(job.userId);
 
-        const afip = new Afip({
-          CUIT: user?.username,
-          cert,
-          key,
-          production: true,
-          access_token: config.afipSdkToken,
+        if (!user) {
+          logger.error(`User not found for job ${job.id}`);
+          job.status = Status.Failed;
+          await AppDataSource.getRepository(Jobs).save(job);
+          continue;
+        }
+
+        const fechaComprobante = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+        const response = await afipApiClient.createFacturaC({
+          puntoVenta: job.salePoint,
+          fechaComprobante,
+          importeTotal: job.valueToBill,
+          cuitEmisor: user.username!,
+          certificado: cert,
+          clavePrivada: key,
         });
 
-        const response = await afip.ElectronicBilling.createNextVoucher({
-          CantReg: 1,
-          PtoVta: job.salePoint,
-          CbteTipo: 11,
-          Concepto: 1,
-          DocTipo: 99,
-          DocNro: 0,
-          CbteFch: parseInt(
-            new Date().toISOString().slice(0, 10).replace(/-/g, '')
-          ),
-          ImpTotal: job.valueToBill,
-          ImpNeto: job.valueToBill,
-          ImpIVA: 0,
-          MonId: 'PES',
-          MonCotiz: 1,
-        });
-
-        if (response) {
-          logger.info('Factura generada CAE: ' + response.CAE);
+        if (response.success) {
+          logger.info('Factura generada CAE: ' + response.data.cae);
           job.status = Status.Completed;
         } else {
-          logger.error('Error al generar factura');
+          logger.error('Error al generar factura: ' + response.message);
           job.status = Status.Failed;
         }
 
@@ -113,8 +102,6 @@ async function executePendingJobs() {
       }
     }
 
-    // COMMENTED OUT: Future jobs scheduling
-    // This section has been commented out as requested - only overdue jobs are executed
     // Identify Future Jobs
     const futureJobs = [];
     for (const job of getPendingJobs) {
@@ -162,7 +149,6 @@ async function executePendingJobs() {
       );
       logger.info(`Scheduled future job: ${taskName} with expression: ${cron}`);
     }
-
 
     logger.info(`Job processing completed. Executed ${futureJobs.length} overdue jobs.`);
   } catch (error) {
